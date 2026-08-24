@@ -25,8 +25,23 @@ type experimentalMemoryOrder string
 const (
 	memoryOrderKey        experimentalMemoryOrder = "key"
 	memoryOrderNavigation experimentalMemoryOrder = "navigation"
+	memoryOrderIndegree   experimentalMemoryOrder = "indegree"
+	memoryOrderOutdegree  experimentalMemoryOrder = "outdegree"
+	memoryOrderPageRank   experimentalMemoryOrder = "pagerank"
+	memoryOrderReversePR  experimentalMemoryOrder = "reverse-pagerank"
+	memoryOrderHITSAuth   experimentalMemoryOrder = "hits-authority"
+	memoryOrderHITSHub    experimentalMemoryOrder = "hits-hub"
 	memoryOrderBM25F      experimentalMemoryOrder = "bm25f"
 )
+
+var experimentalStructuralOrders = map[experimentalMemoryOrder]string{
+	memoryOrderIndegree:  "structural_rank_indegree",
+	memoryOrderOutdegree: "structural_rank_outdegree",
+	memoryOrderPageRank:  "structural_rank_pagerank",
+	memoryOrderReversePR: "structural_rank_reverse_pagerank",
+	memoryOrderHITSAuth:  "structural_rank_hits_authority",
+	memoryOrderHITSHub:   "structural_rank_hits_hub",
+}
 
 type experimentalBM25FConfig struct {
 	KeyWeight   float64 `json:"key_weight"`
@@ -45,15 +60,16 @@ func defaultExperimentalBM25FConfig() experimentalBM25FConfig {
 }
 
 type experimentalMemory struct {
-	ID             string
-	Key            string
-	Title          string
-	Aliases        []string
-	Lifecycle      string
-	NavigationRank *int
-	References     []string
-	Provenance     string
-	Body           string
+	ID              string
+	Key             string
+	Title           string
+	Aliases         []string
+	Lifecycle       string
+	NavigationRank  *int
+	StructuralRanks map[experimentalMemoryOrder]int
+	References      []string
+	Provenance      string
+	Body            string
 }
 
 type experimentalMemoryItem struct {
@@ -107,6 +123,7 @@ type experimentalCursor struct {
 func parseExperimentalMemory(key, value string) experimentalMemory {
 	memory := experimentalMemory{
 		ID: key, Key: key, Title: key, Lifecycle: "active", Body: value,
+		StructuralRanks: make(map[experimentalMemoryOrder]int),
 	}
 	normalized := strings.ReplaceAll(value, "\r\n", "\n")
 	if !strings.HasPrefix(normalized, "---\n") {
@@ -144,6 +161,15 @@ func parseExperimentalMemory(key, value string) experimentalMemory {
 			memory.References = parseFrontmatterList(raw)
 		case "provenance":
 			memory.Provenance = trimFrontmatterScalar(raw)
+		default:
+			for order, field := range experimentalStructuralOrders {
+				if name == field {
+					if rank, err := strconv.Atoi(trimFrontmatterScalar(raw)); err == nil {
+						memory.StructuralRanks[order] = rank
+					}
+					break
+				}
+			}
 		}
 	}
 	return memory
@@ -180,7 +206,7 @@ func buildExperimentalMemoryPage(memories map[string]string, req experimentalDis
 	if req.PageSize < 1 {
 		return experimentalMemoryPage{}, errors.New("experimental page size must be >= 1")
 	}
-	if req.Order != memoryOrderKey && req.Order != memoryOrderNavigation && req.Order != memoryOrderBM25F {
+	if !validExperimentalMemoryOrder(req.Order) {
 		return experimentalMemoryPage{}, fmt.Errorf("unknown experimental Memory order %q", req.Order)
 	}
 	if err := validateExperimentalBM25F(req.BM25F); err != nil {
@@ -208,6 +234,9 @@ func buildExperimentalMemoryPage(memories map[string]string, req experimentalDis
 	for key, value := range memories {
 		parsed = append(parsed, parseExperimentalMemory(key, value))
 	}
+	if err := validateExperimentalStructuralRanks(parsed, req.Order); err != nil {
+		return experimentalMemoryPage{}, err
+	}
 	scores := map[string]float64(nil)
 	if req.Order == memoryOrderBM25F {
 		scores = scoreExperimentalBM25F(parsed, req.Search, req.BM25F)
@@ -223,6 +252,13 @@ func buildExperimentalMemoryPage(memories map[string]string, req experimentalDis
 		case memoryOrderBM25F:
 			if scores[left.ID] != scores[right.ID] {
 				return scores[left.ID] > scores[right.ID]
+			}
+		default:
+			if _, ok := experimentalStructuralOrders[req.Order]; ok {
+				leftRank, rightRank := structuralRank(left, req.Order), structuralRank(right, req.Order)
+				if leftRank != rightRank {
+					return leftRank < rightRank
+				}
 			}
 		}
 		return left.ID < right.ID
@@ -268,6 +304,14 @@ func buildExperimentalMemoryPage(memories map[string]string, req experimentalDis
 	return page, nil
 }
 
+func validExperimentalMemoryOrder(order experimentalMemoryOrder) bool {
+	if order == memoryOrderKey || order == memoryOrderNavigation || order == memoryOrderBM25F {
+		return true
+	}
+	_, ok := experimentalStructuralOrders[order]
+	return ok
+}
+
 func validateExperimentalBM25F(config experimentalBM25FConfig) error {
 	weights := []float64{config.KeyWeight, config.AliasWeight, config.TitleWeight, config.BodyWeight}
 	for _, weight := range weights {
@@ -289,6 +333,31 @@ func navigationRank(memory experimentalMemory) int {
 		return int(^uint(0) >> 1)
 	}
 	return *memory.NavigationRank
+}
+
+func structuralRank(memory experimentalMemory, order experimentalMemoryOrder) int {
+	if rank, ok := memory.StructuralRanks[order]; ok {
+		return rank
+	}
+	return int(^uint(0) >> 1)
+}
+
+func validateExperimentalStructuralRanks(memories []experimentalMemory, order experimentalMemoryOrder) error {
+	if _, structural := experimentalStructuralOrders[order]; !structural {
+		return nil
+	}
+	seen := make(map[int]string, len(memories))
+	for _, memory := range memories {
+		rank, ok := memory.StructuralRanks[order]
+		if !ok || rank < 1 {
+			return fmt.Errorf("experimental %s order is missing a positive materialized rank for Memory %q", order, memory.ID)
+		}
+		if previous, duplicate := seen[rank]; duplicate {
+			return fmt.Errorf("experimental %s order has duplicate materialized rank %d for Memories %q and %q", order, rank, previous, memory.ID)
+		}
+		seen[rank] = memory.ID
+	}
+	return nil
 }
 
 func experimentalMatchedFields(memory experimentalMemory, search string) []string {

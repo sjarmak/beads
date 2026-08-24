@@ -12,6 +12,8 @@ title: Run the Dolt recovery playbook
 aliases: [phantom database, dolt recovery]
 lifecycle: active
 navigation_rank: 2
+structural_rank_pagerank: 7
+structural_rank_hits_hub: 3
 references: [mem-storage-root, task-incident-42]
 provenance: human
 ---
@@ -31,11 +33,39 @@ func TestParseExperimentalMemory(t *testing.T) {
 	if got.Lifecycle != "active" || got.NavigationRank == nil || *got.NavigationRank != 2 {
 		t.Fatalf("lifecycle/rank = %q/%v", got.Lifecycle, got.NavigationRank)
 	}
+	if got.StructuralRanks[memoryOrderPageRank] != 7 || got.StructuralRanks[memoryOrderHITSHub] != 3 {
+		t.Fatalf("structural ranks = %#v", got.StructuralRanks)
+	}
 	if !reflect.DeepEqual(got.References, []string{"mem-storage-root", "task-incident-42"}) {
 		t.Fatalf("references = %#v", got.References)
 	}
 	if strings.Contains(got.Body, "navigation_rank") || !strings.HasPrefix(got.Body, "When a Dolt") {
 		t.Fatalf("body did not exclude frontmatter: %q", got.Body)
+	}
+}
+
+func TestExperimentalStructuralPriorOrdering(t *testing.T) {
+	fixture := func(title string, rank int) string {
+		value := memoryFixture(title, nil, "active", 1, "deploy")
+		return strings.Replace(value, "navigation_rank: 1\n", "navigation_rank: 1\nstructural_rank_pagerank: "+strconv.Itoa(rank)+"\n", 1)
+	}
+	page, err := buildExperimentalMemoryPage(map[string]string{
+		"a": fixture("A", 3), "b": fixture("B", 1), "c": fixture("C", 2),
+	}, experimentalDiscoveryRequest{Search: "deploy", Order: memoryOrderPageRank, PageSize: 10, BM25F: defaultExperimentalBM25FConfig()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := experimentalItemIDs(page.Items); !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
+		t.Fatalf("pagerank order = %v", got)
+	}
+}
+
+func TestExperimentalStructuralPriorRequiresMaterializedRanks(t *testing.T) {
+	_, err := buildExperimentalMemoryPage(map[string]string{
+		"a": memoryFixture("A", nil, "active", 1, "deploy"),
+	}, experimentalDiscoveryRequest{Search: "deploy", Order: memoryOrderPageRank, PageSize: 10, BM25F: defaultExperimentalBM25FConfig()})
+	if err == nil || !strings.Contains(err.Error(), "missing a positive materialized rank") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
