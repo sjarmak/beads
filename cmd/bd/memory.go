@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -82,6 +84,58 @@ const memoryPrefix = kvkeys.MemoryPrefix
 
 // memoryKeyFlag allows explicit key override for bd remember.
 var memoryKeyFlag string
+
+// These flags intentionally expose a narrow experiment surface rather than a
+// production pagination contract. Their defaults preserve the shipped command.
+var (
+	experimentalMemoryOrderFlag        string
+	experimentalMemoryPageSizeFlag     string
+	experimentalMemoryContinuationFlag string
+	experimentalBM25FKeyWeightFlag     float64
+	experimentalBM25FAliasWeightFlag   float64
+	experimentalBM25FTitleWeightFlag   float64
+	experimentalBM25FBodyWeightFlag    float64
+	experimentalBM25FK1Flag            float64
+	experimentalBM25FBFlag             float64
+)
+
+func experimentalMemoryDiscoveryRequested() bool {
+	return experimentalMemoryOrderFlag != "" || experimentalMemoryPageSizeFlag != "" || experimentalMemoryContinuationFlag != ""
+}
+
+func experimentalMemoryRequest(search string) (experimentalDiscoveryRequest, error) {
+	order := experimentalMemoryOrder(experimentalMemoryOrderFlag)
+	if order == "" {
+		order = memoryOrderKey
+	}
+	pageSize := 0
+	unbounded := experimentalMemoryPageSizeFlag == "all"
+	if unbounded {
+		pageSize = 1
+	} else if experimentalMemoryPageSizeFlag != "" {
+		parsed, err := strconv.Atoi(experimentalMemoryPageSizeFlag)
+		if err != nil {
+			return experimentalDiscoveryRequest{}, errors.New("experimental Memory page size must be an integer >= 1 or 'all'")
+		}
+		pageSize = parsed
+	}
+	request := experimentalDiscoveryRequest{
+		Search:       search,
+		Order:        order,
+		PageSize:     pageSize,
+		Unbounded:    unbounded,
+		Continuation: experimentalMemoryContinuationFlag,
+		BM25F: experimentalBM25FConfig{
+			KeyWeight: experimentalBM25FKeyWeightFlag, AliasWeight: experimentalBM25FAliasWeightFlag,
+			TitleWeight: experimentalBM25FTitleWeightFlag, BodyWeight: experimentalBM25FBodyWeightFlag,
+			K1: experimentalBM25FK1Flag, B: experimentalBM25FBFlag,
+		},
+	}
+	if request.PageSize < 1 {
+		return experimentalDiscoveryRequest{}, errors.New("experimental Memory discovery requires --page-size >= 1")
+	}
+	return request, nil
+}
 
 // matchesKnownCommand reports whether insight is a single bare word that
 // matches the name or an alias of a top-level bd command. It is used to catch
@@ -383,9 +437,26 @@ Examples:
 		// The term goes to the role RAW. Case folding is List's, so the two
 		// routes cannot come to disagree about what matches — which is the
 		// whole reason the filter moved down.
+		candidateStarted := time.Now()
 		result, err := memories.List(rootCtx, memoryops.ListRequest{Search: search})
+		candidateGenerationMs := float64(time.Since(candidateStarted).Nanoseconds()) / 1_000_000
 		if err != nil {
 			return HandleErrorRespectJSON("listing memories: %v", err)
+		}
+		if experimentalMemoryDiscoveryRequested() {
+			if !jsonOutput {
+				return HandleError("experimental Memory discovery requires --json")
+			}
+			request, err := experimentalMemoryRequest(search)
+			if err != nil {
+				return HandleErrorRespectJSON("%v", err)
+			}
+			page, err := buildExperimentalMemoryPage(result.Memories, request)
+			if err != nil {
+				return HandleErrorRespectJSON("experimental Memory discovery: %v", err)
+			}
+			page.CandidateGenerationMs = candidateGenerationMs
+			return outputJSON(page)
 		}
 
 		// The ECHO, on the other hand, has always been lowercased: `bd memories
@@ -485,6 +556,16 @@ func truncateMemory(s string, maxLen int) string {
 
 func init() {
 	rememberCmd.Flags().StringVar(&memoryKeyFlag, "key", "", "Explicit key for the memory (auto-generated from content if not set). If a memory with this key already exists, it will be updated in place")
+	defaults := defaultExperimentalBM25FConfig()
+	memoriesCmd.Flags().StringVar(&experimentalMemoryOrderFlag, "experimental-order", "", "Experimental pre-pagination order: key, navigation, or bm25f")
+	memoriesCmd.Flags().StringVar(&experimentalMemoryPageSizeFlag, "page-size", "", "Experimental discovery page size: integer >= 1 or 'all' (requires --json)")
+	memoriesCmd.Flags().StringVar(&experimentalMemoryContinuationFlag, "continuation", "", "Experimental continuation from a prior page")
+	memoriesCmd.Flags().Float64Var(&experimentalBM25FKeyWeightFlag, "bm25f-key-weight", defaults.KeyWeight, "Experimental BM25F key weight")
+	memoriesCmd.Flags().Float64Var(&experimentalBM25FAliasWeightFlag, "bm25f-alias-weight", defaults.AliasWeight, "Experimental BM25F alias weight")
+	memoriesCmd.Flags().Float64Var(&experimentalBM25FTitleWeightFlag, "bm25f-title-weight", defaults.TitleWeight, "Experimental BM25F title weight")
+	memoriesCmd.Flags().Float64Var(&experimentalBM25FBodyWeightFlag, "bm25f-body-weight", defaults.BodyWeight, "Experimental BM25F body weight")
+	memoriesCmd.Flags().Float64Var(&experimentalBM25FK1Flag, "bm25f-k1", defaults.K1, "Experimental BM25F saturation parameter")
+	memoriesCmd.Flags().Float64Var(&experimentalBM25FBFlag, "bm25f-b", defaults.B, "Experimental BM25F field-length normalization")
 
 	rootCmd.AddCommand(rememberCmd)
 	rootCmd.AddCommand(memoriesCmd)
