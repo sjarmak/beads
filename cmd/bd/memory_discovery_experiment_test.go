@@ -14,6 +14,10 @@ lifecycle: active
 navigation_rank: 2
 structural_rank_pagerank: 7
 structural_rank_hits_hub: 3
+structural_rank_control_automatic: 11
+structural_rank_control_semantic: 5
+structural_rank_control_strategy: 9
+structural_rank_control_raw: 2
 references: [mem-storage-root, task-incident-42]
 provenance: human
 ---
@@ -36,11 +40,64 @@ func TestParseExperimentalMemory(t *testing.T) {
 	if got.StructuralRanks[memoryOrderPageRank] != 7 || got.StructuralRanks[memoryOrderHITSHub] != 3 {
 		t.Fatalf("structural ranks = %#v", got.StructuralRanks)
 	}
+	for order, want := range map[experimentalMemoryOrder]int{
+		memoryOrderControlAutomatic: 11,
+		memoryOrderControlSemantic:  5,
+		memoryOrderControlStrategy:  9,
+		memoryOrderControlRaw:       2,
+	} {
+		if got.StructuralRanks[order] != want {
+			t.Fatalf("%s rank = %d, want %d", order, got.StructuralRanks[order], want)
+		}
+	}
 	if !reflect.DeepEqual(got.References, []string{"mem-storage-root", "task-incident-42"}) {
 		t.Fatalf("references = %#v", got.References)
 	}
 	if strings.Contains(got.Body, "navigation_rank") || !strings.HasPrefix(got.Body, "When a Dolt") {
 		t.Fatalf("body did not exclude frontmatter: %q", got.Body)
+	}
+}
+
+func TestExperimentalControlOrdersUseIndependentMaterializedRanks(t *testing.T) {
+	orders := []experimentalMemoryOrder{
+		memoryOrderControlAutomatic,
+		memoryOrderControlSemantic,
+		memoryOrderControlStrategy,
+		memoryOrderControlRaw,
+	}
+	ranks := map[experimentalMemoryOrder]map[string]int{
+		memoryOrderControlAutomatic: {"a": 1, "b": 2, "c": 3},
+		memoryOrderControlSemantic:  {"a": 2, "b": 3, "c": 1},
+		memoryOrderControlStrategy:  {"a": 3, "b": 1, "c": 2},
+		memoryOrderControlRaw:       {"a": 1, "b": 3, "c": 2},
+	}
+	values := map[string]string{}
+	for _, id := range []string{"a", "b", "c"} {
+		value := memoryFixture(strings.ToUpper(id), nil, "active", 1, "deploy")
+		for _, order := range orders {
+			rank := ranks[order][id]
+			field := "structural_rank_" + strings.ReplaceAll(string(order), "-", "_")
+			value = strings.Replace(value, "navigation_rank: 1\n", "navigation_rank: 1\n"+field+": "+strconv.Itoa(rank)+"\n", 1)
+		}
+		values[id] = value
+	}
+
+	want := map[experimentalMemoryOrder][]string{
+		memoryOrderControlAutomatic: {"a", "b", "c"},
+		memoryOrderControlSemantic:  {"c", "a", "b"},
+		memoryOrderControlStrategy:  {"b", "c", "a"},
+		memoryOrderControlRaw:       {"a", "c", "b"},
+	}
+	for _, order := range orders {
+		page, err := buildExperimentalMemoryPage(values, experimentalDiscoveryRequest{
+			Search: "deploy", Order: order, PageSize: 10, BM25F: defaultExperimentalBM25FConfig(),
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", order, err)
+		}
+		if got := experimentalItemIDs(page.Items); !reflect.DeepEqual(got, want[order]) {
+			t.Fatalf("%s order = %v, want %v", order, got, want[order])
+		}
 	}
 }
 

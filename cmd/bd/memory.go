@@ -557,7 +557,7 @@ func truncateMemory(s string, maxLen int) string {
 func init() {
 	rememberCmd.Flags().StringVar(&memoryKeyFlag, "key", "", "Explicit key for the memory (auto-generated from content if not set). If a memory with this key already exists, it will be updated in place")
 	defaults := defaultExperimentalBM25FConfig()
-	memoriesCmd.Flags().StringVar(&experimentalMemoryOrderFlag, "experimental-order", "", "Experimental pre-pagination order: key, navigation, indegree, outdegree, pagerank, reverse-pagerank, hits-authority, hits-hub, or bm25f")
+	memoriesCmd.Flags().StringVar(&experimentalMemoryOrderFlag, "experimental-order", "", "Experimental pre-pagination order: key, navigation, indegree, outdegree, pagerank, reverse-pagerank, hits-authority, hits-hub, bm25f, control-automatic, control-semantic, control-strategy, or control-raw")
 	memoriesCmd.Flags().StringVar(&experimentalMemoryPageSizeFlag, "page-size", "", "Experimental discovery page size: integer >= 1 or 'all' (requires --json)")
 	memoriesCmd.Flags().StringVar(&experimentalMemoryContinuationFlag, "continuation", "", "Experimental continuation from a prior page")
 	memoriesCmd.Flags().Float64Var(&experimentalBM25FKeyWeightFlag, "bm25f-key-weight", defaults.KeyWeight, "Experimental BM25F key weight")

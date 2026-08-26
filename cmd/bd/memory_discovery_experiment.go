@@ -23,24 +23,32 @@ const (
 type experimentalMemoryOrder string
 
 const (
-	memoryOrderKey        experimentalMemoryOrder = "key"
-	memoryOrderNavigation experimentalMemoryOrder = "navigation"
-	memoryOrderIndegree   experimentalMemoryOrder = "indegree"
-	memoryOrderOutdegree  experimentalMemoryOrder = "outdegree"
-	memoryOrderPageRank   experimentalMemoryOrder = "pagerank"
-	memoryOrderReversePR  experimentalMemoryOrder = "reverse-pagerank"
-	memoryOrderHITSAuth   experimentalMemoryOrder = "hits-authority"
-	memoryOrderHITSHub    experimentalMemoryOrder = "hits-hub"
-	memoryOrderBM25F      experimentalMemoryOrder = "bm25f"
+	memoryOrderKey              experimentalMemoryOrder = "key"
+	memoryOrderNavigation       experimentalMemoryOrder = "navigation"
+	memoryOrderIndegree         experimentalMemoryOrder = "indegree"
+	memoryOrderOutdegree        experimentalMemoryOrder = "outdegree"
+	memoryOrderPageRank         experimentalMemoryOrder = "pagerank"
+	memoryOrderReversePR        experimentalMemoryOrder = "reverse-pagerank"
+	memoryOrderHITSAuth         experimentalMemoryOrder = "hits-authority"
+	memoryOrderHITSHub          experimentalMemoryOrder = "hits-hub"
+	memoryOrderBM25F            experimentalMemoryOrder = "bm25f"
+	memoryOrderControlAutomatic experimentalMemoryOrder = "control-automatic"
+	memoryOrderControlSemantic  experimentalMemoryOrder = "control-semantic"
+	memoryOrderControlStrategy  experimentalMemoryOrder = "control-strategy"
+	memoryOrderControlRaw       experimentalMemoryOrder = "control-raw"
 )
 
 var experimentalStructuralOrders = map[experimentalMemoryOrder]string{
-	memoryOrderIndegree:  "structural_rank_indegree",
-	memoryOrderOutdegree: "structural_rank_outdegree",
-	memoryOrderPageRank:  "structural_rank_pagerank",
-	memoryOrderReversePR: "structural_rank_reverse_pagerank",
-	memoryOrderHITSAuth:  "structural_rank_hits_authority",
-	memoryOrderHITSHub:   "structural_rank_hits_hub",
+	memoryOrderIndegree:         "structural_rank_indegree",
+	memoryOrderOutdegree:        "structural_rank_outdegree",
+	memoryOrderPageRank:         "structural_rank_pagerank",
+	memoryOrderReversePR:        "structural_rank_reverse_pagerank",
+	memoryOrderHITSAuth:         "structural_rank_hits_authority",
+	memoryOrderHITSHub:          "structural_rank_hits_hub",
+	memoryOrderControlAutomatic: "structural_rank_control_automatic",
+	memoryOrderControlSemantic:  "structural_rank_control_semantic",
+	memoryOrderControlStrategy:  "structural_rank_control_strategy",
+	memoryOrderControlRaw:       "structural_rank_control_raw",
 }
 
 type experimentalBM25FConfig struct {
